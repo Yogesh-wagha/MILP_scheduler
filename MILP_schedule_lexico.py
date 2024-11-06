@@ -78,10 +78,10 @@ url = 'https://github.com/ZwickyTransientFacility/ztf_information/raw/master/fie
 filename = download_file(url)
 field_grid = QTable(np.recfromtxt(filename, comments='%', usecols=range(3), names=['field_id', 'ra', 'dec']))
 field_grid['coord'] = SkyCoord(field_grid.columns.pop('ra') * u.deg, field_grid.columns.pop('dec') * u.deg)
-field_grid = field_grid[0:881]
-skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[6]))
+field_grid = field_grid[0:881]   #working only with primary fields
+skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[0]))
 # print("SkyMap loaded")
-plot_filename = os.path.basename(filelist[6])
+plot_filename = os.path.basename(filelist[0])
 
 event_time = Time(metadata['gps_time'], format='gps').utc
 event_time.format = 'iso'
@@ -230,19 +230,26 @@ for i in range(len(selected_fields)):
  start_time_vars[j] <= M * (1 - s[i][j]), ctname=f'constr1_{i}_{j}')
         m2.add_constraint(start_time_vars[j] + delta * selected_field_vars[j] -
  start_time_vars[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
+        
 w = 0.1
-slew_time_max = np.max(slew_times) * u.second
-slew_time_max_ = slew_time_max.to_value(u.day)
-for i in range(len(start_time_vars) - 1):
-    m2.add_constraint(
-        start_time_vars[i+1] - start_time_vars[i] >= delta + slew_time_max_,
-        ctname=f'adjacent_field_constraint_{i}'
-    )
-m2.maximize(
-    m2.sum(probabilities[i] * selected_field_vars[i] for i in range(len(selected_fields))) 
-    - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i))
-)
-# m2.parameters.timelimit = 120
+
+# slew_time_max = np.max(slew_times) * u.second
+# slew_time_max_ = slew_time_max.to_value(u.day)
+
+# slew_time_value = slew_times*u.second
+# slew_time_ = slew_time_value.to_value(u.day)
+
+# for i in range(len(start_time_vars) - 1):
+#     m2.add_constraint(
+#         start_time_vars[i+1] - start_time_vars[i] <= delta + slew_time_max_,
+#         ctname=f'adjacent_field_constraint_{i}'
+#     )
+# m2.maximize(
+#     m2.sum(probabilities[i] * selected_field_vars[i] for i in range(len(selected_fields))) 
+#     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i))
+# )
+m2.maximize(m2.sum(selected_field_vars[i] for i in range(len(selected_fields))))
+m2.parameters.timelimit = 60
 solution = m2.solve(log_output=True)
 print("Optimization completed")
 

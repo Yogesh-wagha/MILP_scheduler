@@ -27,6 +27,11 @@ warnings.simplefilter('ignore', astroplan.TargetAlwaysUpWarning)
 directory_path = "/u/ywagh/test_skymaps/"
 filelist = sorted([f for f in os.listdir(directory_path) if f.endswith('.gz')])
 print(filelist)
+
+slew_speed = 2.5 * u.deg / u.s
+slew_accel = 0.4 * u.deg / u.s**2
+readout = 8.2 * u.s
+
 ns_nchips = 4
 ew_nchips = 4
 ns_npix = 6144
@@ -249,8 +254,22 @@ scheduled_fields['scheduled_end_time'] = scheduled_fields['scheduled_start_time'
 scheduled_fields = scheduled_fields[np.asarray([v.x for v in x], dtype =bool)]
 scheduled_fields.sort('scheduled_start_time')
 '''
+
+#calculate the slew_time between all the fields available for observation
+
+def slew_time(separation):
+   return np.where(
+       separation <= (slew_speed**2 / slew_accel), 
+       np.sqrt(2 * separation / slew_accel), 
+       (2 * slew_speed / slew_accel) + (separation - slew_speed**2 / slew_accel) / slew_speed
+       )
+
+slew_times = slew_time(separation_matrix).value
+
 delta = exposure_time.to_value(u.day)
 M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
+
+'''
 m = Model('real_telescope')  #for docplex
 m.parameters.timelimit = 60
 t = [m.continuous_var(
@@ -268,6 +287,25 @@ for i in range(len(t)):
         m.add_constraint(t[j] + delta * x[j] - t[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
 m.maximize(m.sum(x))
 solution = m.solve(log_output=True)
+'''
+m = Model('real_telescope')  #for docplex
+m.parameters.timelimit = 60
+t = [m.continuous_var(
+        lb=(row['start_time'] - start_time).to_value(u.day),
+        ub=(row['end_time'] - start_time - exposure_time).to_value(u.day),
+        name=f't_{i}'
+     ) for i, row in enumerate(selected_fields)]
+x = [m.binary_var(name=f'x_{i}') for i in range(len(t))]
+s = [[m.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(t))]
+
+for i in range(len(t)):
+    for j in range(i):
+        # Constraints for time sequencing between fields i and j
+        m.add_constraint(t[i] + delta * x[i] - t[j] <= M * (1 - s[i][j]), ctname=f'constr1_{i}_{j}')
+        m.add_constraint(t[j] + delta * x[j] - t[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
+m.maximize(m.sum(x))
+solution = m.solve(log_output=True)
+
 
 if solution:
     print("Optimization completed")
