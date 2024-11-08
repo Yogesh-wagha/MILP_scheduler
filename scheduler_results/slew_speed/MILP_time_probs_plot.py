@@ -205,40 +205,41 @@ def scheduler(skymap_file,n):
             delta = exposure_time.to_value(u.day)
             M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
             
-            start_time_vars = [m2.continuous_var(
+            tc = [m2.continuous_var(
                     lb=(row['start_time'] - start_time).to_value(u.day),
                     ub=(row['end_time'] - start_time - exposure_time).to_value(u.day),
                     name=f'start_times_{i}'
                 ) for i, row in enumerate(selected_fields)]
             
-            selected_field_vars = m2.binary_var_list(len(start_time_vars), name='selected field')
-            s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(start_time_vars))]
+            slew_time_max = np.max(slew_times) * u.second
+            slew_time_max_ = slew_time_max.to_value(u.day)
+
+            slew_time_value = slew_times*u.second
+            slew_time_day = slew_time_value.to_value(u.day)
+            
+            x = m2.binary_var_list(len(tc), name='selected field')
+            s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(tc))]
 
 
 
             #non-overlaping fields
-            for i in range(len(start_time_vars)):
+            for i in range(len(tc)):
                 for j in range(i):
-                    m2.add_constraint(start_time_vars[i] + delta * selected_field_vars[i] -
-                                      start_time_vars[j] <= M * (1 - s[i][j]), ctname=f'constr1_{i}_{j}')
-                    m2.add_constraint(start_time_vars[j] + delta * selected_field_vars[j] -
-                                      start_time_vars[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
+                    # Non-overlap and max start time gap using Big M
+                    m2.add_constraint(tc[i] >= tc[j] + delta * x[j] + slew_time_day[i][j] - M * (1 - s[i][j]),ctname=f'non_overlap_gap_1_{i}_{j}')
+                    m2.add_constraint(tc[j] >= tc[i] + delta * x[i] + slew_time_day[i][j] - M * s[i][j],ctname=f'non_overlap_gap_2_{i}_{j}')
             w = 0.1 #weight factor for scheduling
 
-            # slew_time_value = slew_times*u.second
-            # slew_time_ = slew_time_value.to_value(u.day)
-            
-            slew_time_max = np.max(slew_times) * u.second
-            slew_time_max_ = slew_time_max.to_value(u.day)  
-            for i in range(len(start_time_vars) - 1):
-                m2.add_constraint(
-                    start_time_vars[i+1] - start_time_vars[i] >= delta + slew_time_max_,
-                    ctname=f'adjacent_field_constraint_{i}'
-                )
-            m2.maximize(
-                m2.sum(probabilities[i] * selected_field_vars[i] for i in range(len(start_time_vars))) 
-                - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(start_time_vars)) for j in range(i))
-            )
+            # for i in range(len(tc) - 1):
+            #     m2.add_constraint(
+            #         tc[i+1] - tc[i] >= delta + slew_time_max_,
+            #         ctname=f'adjacent_field_constraint_{i}'
+            #     )
+            # m2.maximize(
+            #     m2.sum(probabilities[i] * x[i] for i in range(len(tc))) 
+            #     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(tc)) for j in range(i))
+            # )
+            m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
             m2.parameters.timelimit = 60
             solution2 = m2.solve(log_output=True)
             t4 = time.time()
@@ -246,13 +247,13 @@ def scheduler(skymap_file,n):
                 solved_scheduler_list.append(plot_filename)
                 print("Optimization completed")
                 scheduler_time.append(t4-t3)
-                scheduled_start_times = [solution2.get_value(var) for var in start_time_vars]
+                scheduled_start_times = [solution2.get_value(var) for var in tc]
                 scheduled_fields = QTable(selected_fields)
                 scheduled_fields['scheduled_start_time'] = Time(scheduled_start_times, format='mjd')
                 scheduled_fields['scheduled_start_time'].format = 'iso'
                 scheduled_fields['scheduled_end_time'] = scheduled_fields['scheduled_start_time'] + exposure_time
-                scheduled_fields = scheduled_fields[np.asarray([solution2.get_value(var) for var in selected_field_vars], dtype=bool)]
-                # scheduled_fields.sort('scheduled_start_time')
+                scheduled_fields = scheduled_fields[np.asarray([solution2.get_value(var) for var in x], dtype=bool)]
+                scheduled_fields.sort('scheduled_start_time')
 
                 fig, ax = plt.subplots()
                 ax.hlines(
