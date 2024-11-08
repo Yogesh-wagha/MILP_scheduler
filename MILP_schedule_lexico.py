@@ -79,10 +79,13 @@ filename = download_file(url)
 field_grid = QTable(np.recfromtxt(filename, comments='%', usecols=range(3), names=['field_id', 'ra', 'dec']))
 field_grid['coord'] = SkyCoord(field_grid.columns.pop('ra') * u.deg, field_grid.columns.pop('dec') * u.deg)
 field_grid = field_grid[0:881]   #working only with primary fields
-skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[0]))
-# print("SkyMap loaded")
-plot_filename = os.path.basename(filelist[0])
 
+
+#******************************************************************************
+skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[6]))
+
+plot_filename = os.path.basename(filelist[6])
+#******************************************************************************
 event_time = Time(metadata['gps_time'], format='gps').utc
 event_time.format = 'iso'
 print('event time:',event_time)
@@ -213,53 +216,88 @@ selected_fields['probabilities'] = probabilities
 
 delta = exposure_time.to_value(u.day)
 M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
-
-selected_field_vars = m2.binary_var_list(len(selected_fields), name='selected field')
+M = M * 20
+x = m2.binary_var_list(len(selected_fields), name='selected field')
 s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(selected_fields))]
 
-start_time_vars = [m2.continuous_var(
+tc = [m2.continuous_var(
         lb=(row['start_time'] - start_time).to_value(u.day),
         ub=(row['end_time'] - start_time - exposure_time).to_value(u.day),
         name=f'start_times_{i}'
      ) for i, row in enumerate(selected_fields)]
 
+slew_time_max = np.max(slew_times) * u.second
+slew_time_max_ = slew_time_max.to_value(u.day)
+
+slew_time_value = slew_times*u.second
+slew_time_day = slew_time_value.to_value(u.day)
+
 #non-overlaping fields
-for i in range(len(selected_fields)):
-    for j in range(i):
-        m2.add_constraint(start_time_vars[i] + delta * selected_field_vars[i] -
- start_time_vars[j] <= M * (1 - s[i][j]), ctname=f'constr1_{i}_{j}')
-        m2.add_constraint(start_time_vars[j] + delta * selected_field_vars[j] -
- start_time_vars[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
-        
+# for i in range(len(tc)):
+#     for j in range(i):
+#         # Constraints for time sequencing between fields i and j
+#         m2.add_constraint(tc[i] + delta * x[i] - tc[j] <= M * (1 - s[i][j]), ctname=f'constr1_{i}_{j}')
+#         m2.add_constraint(tc[j] + delta * x[j] - tc[i] <= M * s[i][j], ctname=f'constr2_{i}_{j}')
 w = 0.1
 
-# slew_time_max = np.max(slew_times) * u.second
-# slew_time_max_ = slew_time_max.to_value(u.day)
+for i in range(len(tc)):
+    for j in range(i):
+        # Non-overlap and max start time gap using Big M
+        m2.add_constraint(
+            tc[i] >= tc[j] + delta * x[j] + slew_time_day[i][j] - M * (1 - s[i][j]),
+            ctname=f'non_overlap_gap_1_{i}_{j}'
+        )
+        m2.add_constraint(
+            tc[j] >= tc[i] + delta * x[i] + slew_time_day[i][j] - M * s[i][j],
+            ctname=f'non_overlap_gap_2_{i}_{j}'
+        )
+
+
+'''
+            for i in range(len(tc)):
+                for j in range(i):
+                    m2.add_constraint(tc[i] + delta * x[i] - M * (1 - s[i][j]) <= tc[j], ctname=f'constr1_{i}_{j}')
+                    m2.add_constraint(tc[j] + delta * x[j] - M * s[i][j] <= tc[i], ctname=f'constr2_{i}_{j}')
+'''
+
+
 
 # slew_time_value = slew_times*u.second
-# slew_time_ = slew_time_value.to_value(u.day)
+# slew_time_day = slew_time_value.to_value(u.day)
 
-# for i in range(len(start_time_vars) - 1):
+# for i in range(len(tc) - 1):
 #     m2.add_constraint(
-#         start_time_vars[i+1] - start_time_vars[i] <= delta + slew_time_max_,
+#         tc[i+1] - tc[i] >= delta + slew_time_day[i][i+1],
 #         ctname=f'adjacent_field_constraint_{i}'
 #     )
+    
+    
+# for i in range(len(selected_fields)):
+#     for j in range(i):
+#         m2.add_constraint(
+#         tc[j] - tc[i] >= delta + s[i][j] * slew_time_day[i][j],
+#         ctname=f'adjacent_field_constraint_{i}'
+#     )
+
+
 # m2.maximize(
-#     m2.sum(probabilities[i] * selected_field_vars[i] for i in range(len(selected_fields))) 
+#     m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))) 
 #     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i))
 # )
-m2.maximize(m2.sum(selected_field_vars[i] for i in range(len(selected_fields))))
+
+# m2.parameters.preprocessing.presolve = 0 
+m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
 m2.parameters.timelimit = 60
 solution = m2.solve(log_output=True)
 print("Optimization completed")
 
-scheduled_start_times = [solution.get_value(var) for var in start_time_vars]
+scheduled_start_times = [solution.get_value(var) for var in tc]
 # print(scheduled_start_times)
 scheduled_fields = QTable(selected_fields)
 scheduled_fields['scheduled_start_time'] = Time(scheduled_start_times, format='mjd')
 scheduled_fields['scheduled_start_time'].format = 'iso'
 scheduled_fields['scheduled_end_time'] = scheduled_fields['scheduled_start_time'] + exposure_time
-scheduled_fields = scheduled_fields[np.asarray([solution.get_value(var) for var in selected_field_vars], dtype=bool)]
+scheduled_fields = scheduled_fields[np.asarray([solution.get_value(var) for var in x], dtype=bool)]
 scheduled_fields.sort('scheduled_start_time')
 
 fig, ax = plt.subplots()
