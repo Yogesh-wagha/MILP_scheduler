@@ -1,1 +1,57 @@
-*.png
+# Temporary and swap files
+*.swp
+*.out
+*.log
+*.npy
+*.json
+*.pdf
+
+# User-specific configuration and history files
+.python_history
+.viminfo
+.bash_logout
+.bash_profile
+.bashrc
+.zshrc
+.gitconfig
+.gitignore
+.wget-hsts
+README.html
+
+# Conda and Python cache directories
+.conda/
+.cache/
+.astropy/
+.local/
+.ipython/
+.jupyter/
+
+# VS Code, Emacs, and other editor files
+.vscode-server/
+.emacs
+
+# SSH and other secure keys
+.ssh/
+
+# IBM CPLEX and related installations
+.ibm_cplex_studio/
+concert/
+cplex/
+cpoptimizer/
+opl/
+doc/
+swidtag/
+
+# Software and executable installers
+cplex_studio2211.linux_x86_64.bin
+git-2.42.0/
+git/
+Uninstall/
+
+# Scheduler output and result files
+scheduler_results/
+test_skymaps/
+observable_fields
+time_scheduling.out
+solved_scheduler_list.json
+separation_matrix.npy
