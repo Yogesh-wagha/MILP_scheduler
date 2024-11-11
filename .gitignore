@@ -1,0 +1,49 @@
+# Ignore everything by default
+*
+
+# Allow only Python and Jupyter Notebook files
+!*.py
+!*.ipynb
+
+# Ignore specific files and directories
+.MILP_schedule_lex_gurobi.py.swp
+.bash_commands.log
+.bash_logout
+.bash_profile
+.bashrc
+.com.zerog.registry.xml
+.condarc
+.dotnet/
+.emacs
+.gitconfig
+.gk/
+.ibm_cplex_studio/
+.viminfo
+.vscode-server/
+.wget-hsts
+.zshrc
+README.html
+Uninstall/
+concert/
+cplex/
+cplex_studio2211.linux_x86_64.bin
+cpoptimizer/
+doc/
+git-2.42.0/
+git/
+license/
+observable_fields
+opl/
+python/
+scheduler_results/
+test_skymaps/
+time_scheduling.out
+
+# Conda, cache, and user directories
+.conda/
+.cache/
+.astropy/
+.local/
+.ipython/
+.jupyter/
+.ssh/
