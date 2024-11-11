@@ -239,7 +239,9 @@ def scheduler(skymap_file,n):
             #     m2.sum(probabilities[i] * x[i] for i in range(len(tc))) 
             #     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(tc)) for j in range(i))
             # )
-            m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
+            m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))))
+
+            # m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
             m2.parameters.timelimit = 60
             solution2 = m2.solve(log_output=True)
             t4 = time.time()
