@@ -12,11 +12,11 @@ These two objectives are combined into a single function: maximize (probability 
 '''
 #using CPLEX solver
 import astroplan
-from astropy.coordinates import ICRS, SkyCoord, AltAz
+from astropy.coordinates import ICRS, SkyCoord, AltAz, get_moon, EarthLocation
 from astropy import units as u
 from astropy.utils.data import download_file
 from astropy.table import Table, QTable, join
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from astropy_healpix import *
 from ligo.skymap import plot
 from ligo.skymap.io import read_sky_map
@@ -196,8 +196,15 @@ def slew_time(separation):
 
 slew_times = slew_time(separation_matrix).value
 
+slew_time_max = np.max(slew_times) * u.second
+slew_time_max_ = slew_time_max.to_value(u.day) #test
 
 m2 = Model("Telescope timings")
+
+observer_location = EarthLocation.of_site('Palomar')
+
+# def get_moon_position(time):
+#     return get_moon(time, location=observer_location)
 
 #calculate the probability for all the selected fields
 footprints_selected = np.moveaxis(get_footprint(selected_fields['coord']).cartesian.xyz.value, 0, -1)
@@ -217,6 +224,7 @@ selected_fields['probabilities'] = probabilities
 delta = exposure_time.to_value(u.day)
 M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
 M = M * 20
+moon_proximity = m2.binary_var_list(len(selected_fields), name='selected field')
 x = m2.binary_var_list(len(selected_fields), name='selected field')
 s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(selected_fields))]
 
@@ -226,26 +234,44 @@ tc = [m2.continuous_var(
         name=f'start_times_{i}'
      ) for i, row in enumerate(selected_fields)]
 
-slew_time_max = np.max(slew_times) * u.second
-slew_time_max_ = slew_time_max.to_value(u.day)
-
 slew_time_value = slew_times*u.second
 slew_time_day = slew_time_value.to_value(u.day)
 
-w = 0.1
-
-# for i in range(len(tc)):
-#     for j in range(i):
-#         m2.add_constraint(tc[i] >= tc[j] + delta * x[j] + slew_time_day[i][j] - M * (1 - s[i][j]),
-#             ctname=f'non_overlap_gap_1_{i}_{j}')
-#         m2.add_constraint(tc[j] >= tc[i] + delta * x[i] + slew_time_day[i][j] - M * s[i][j],
-#             ctname=f'non_overlap_gap_2_{i}_{j}')
+w = 0.1 #wight factor for slew time minimization
         
 for i in range(len(tc)):
     for j in range(i):
-        m2.add_constraint(tc[i] + delta * x[i] + slew_time_day[i][j] - tc[j] <= M * (1 - s[i][j]), ctname=f'non_overlap_gap_1_{i}_{j}')
-        m2.add_constraint(tc[j] + delta * x[j] + slew_time_day[i][j] - tc[i] <= M * s[i][j], ctname=f'non_overlap_gap_2_{i}_{j}')
+        m2.add_constraint(tc[i] + delta * x[i] + slew_time_day[i][j] - tc[j] <= M * (1 - s[i][j]),
+                          ctname=f'non_overlap_gap_1_{i}_{j}')
+        m2.add_constraint(tc[j] + delta * x[j] + slew_time_day[i][j] - tc[i] <= M * s[i][j], 
+                          ctname=f'non_overlap_gap_2_{i}_{j}')
 
+#moon distance constraint
+
+moon_dist_limit = 20*u.deg 
+time_slices = 10  # Number of intervals throughout the night
+
+for i, row in enumerate(selected_fields):
+    field_coord = SkyCoord(row['coord'])
+    start_time = row['start_time']
+    end_time = row['end_time']
+    
+    time_slices = Time(np.linspace(start_time.jd, end_time.jd, time_slices), format='jd') # time slices
+    
+    within_moon_limit = False #if moon is within 20 degrees at any time slice
+    
+    for time in time_slices:
+        moon_position = get_moon(time, location=observer_location)
+        separation = moon_position.separation(field_coord).deg
+        # separation = separation.value
+        # If the moon is closer than the threshold, mark as within limit
+        if separation < moon_dist_limit:
+            within_moon_limit = True
+            break  
+
+    # Apply constraint based on moon proximity
+    if within_moon_limit:
+        m2.add_constraint(x[i] == 0, ctname=f'moon_proximity_{i}')
 
 
 m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))))
