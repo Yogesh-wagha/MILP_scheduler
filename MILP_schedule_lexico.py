@@ -82,9 +82,9 @@ field_grid = field_grid[0:881]   #working only with primary fields
 
 
 #******************************************************************************
-skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[51]))
+skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[1]))
 
-plot_filename = os.path.basename(filelist[51])
+plot_filename = os.path.basename(filelist[1])
 #******************************************************************************
 event_time = Time(metadata['gps_time'], format='gps').utc
 event_time.format = 'iso'
@@ -252,10 +252,11 @@ m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields)))
 
 # m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
 
-# m2.maximize(
-#     m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))) 
-#     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i))
-# )
+# m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))) 
+#     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i)))
+
+# m2.maximize(m2.sum(probabilities[i]*x[i] - w*slew_times[i][j]*s[i][j]*x[i] for i in range(len(selected_fields) for j in range(i))))
+# m2.maximize(m2.sum(probabilities[i] * x[i] - w * slew_times[i][j] * s[i][j] * x[i] for i in range(len(selected_fields)) for j in range(i)))
 
 m2.parameters.timelimit = 60
 solution = m2.solve(log_output=True)
