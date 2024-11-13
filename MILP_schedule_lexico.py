@@ -12,7 +12,7 @@ These two objectives are combined into a single function: maximize (probability 
 '''
 #using CPLEX solver
 import astroplan
-from astropy.coordinates import ICRS, SkyCoord, AltAz, get_moon, EarthLocation
+from astropy.coordinates import ICRS, SkyCoord, AltAz, get_moon, EarthLocation, get_body
 from astropy import units as u
 from astropy.utils.data import download_file
 from astropy.table import Table, QTable, join
@@ -82,9 +82,9 @@ field_grid = field_grid[0:881]   #working only with primary fields
 
 
 #******************************************************************************
-skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[1]))
+skymap, metadata = read_sky_map(os.path.join(directory_path, filelist[7]))
 
-plot_filename = os.path.basename(filelist[1])
+plot_filename = os.path.basename(filelist[7])
 #******************************************************************************
 event_time = Time(metadata['gps_time'], format='gps').utc
 event_time.format = 'iso'
@@ -224,7 +224,7 @@ selected_fields['probabilities'] = probabilities
 delta = exposure_time.to_value(u.day)
 M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
 M = M * 20
-moon_proximity = m2.binary_var_list(len(selected_fields), name='selected field')
+# moon_proximity = m2.binary_var_list(len(selected_fields), name='selected field')
 x = m2.binary_var_list(len(selected_fields), name='selected field')
 s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(selected_fields))]
 
@@ -248,7 +248,7 @@ for i in range(len(tc)):
 
 #moon distance constraint
 
-moon_dist_limit = 20*u.deg 
+moon_dist_limit = 20
 time_slices = 10  # Number of intervals throughout the night
 
 for i, row in enumerate(selected_fields):
@@ -261,10 +261,10 @@ for i, row in enumerate(selected_fields):
     within_moon_limit = False #if moon is within 20 degrees at any time slice
     
     for time in time_slices:
-        moon_position = get_moon(time, location=observer_location)
+        moon_position = get_body("moon", time, location=observer_location)
         separation = moon_position.separation(field_coord).deg
         # separation = separation.value
-        # If the moon is closer than the threshold, mark as within limit
+        # If the moon is closer than the limit, mark as within limit
         if separation < moon_dist_limit:
             within_moon_limit = True
             break  
