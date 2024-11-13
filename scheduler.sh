@@ -4,7 +4,7 @@
 #SBATCH --output=time_scheduling.out    ## Output file
 #SBATCH --time=04:00:00                 ## Job Duration
 #SBATCH --ntasks=1                      ## Number of tasks (analyses) to run
-#SBATCH --cpus-per-task=24             ## Number of threads the code will use
+#SBATCH --cpus-per-task=16             ## Number of threads the code will use
 #SBATCH --mem-per-cpu=4G               ## Memory per CPU required by the job.
 #SBATCH --account=bcrv-delta-cpu
 #SBATCH --partition=cpu
