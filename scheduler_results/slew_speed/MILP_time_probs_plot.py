@@ -211,8 +211,8 @@ def scheduler(skymap_file,n):
                     name=f'start_times_{i}'
                 ) for i, row in enumerate(selected_fields)]
             
-            slew_time_max = np.max(slew_times) * u.second
-            slew_time_max_ = slew_time_max.to_value(u.day)
+            # slew_time_max = np.max(slew_times) * u.second
+            # slew_time_max_ = slew_time_max.to_value(u.day)
 
             slew_time_value = slew_times*u.second
             slew_time_day = slew_time_value.to_value(u.day)
@@ -220,9 +220,7 @@ def scheduler(skymap_file,n):
             x = m2.binary_var_list(len(tc), name='selected field')
             s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(tc))]
 
-
-
-            #non-overlaping fields
+            #non-overlaping field constraints
             for i in range(len(tc)):
                 for j in range(i):
                     # Non-overlap and max start time gap using Big M
@@ -239,9 +237,11 @@ def scheduler(skymap_file,n):
             #     m2.sum(probabilities[i] * x[i] for i in range(len(tc))) 
             #     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(tc)) for j in range(i))
             # )
+            
             m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))))
 
             # m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
+            
             m2.parameters.timelimit = 60
             solution2 = m2.solve(log_output=True)
             t4 = time.time()
