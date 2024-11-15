@@ -1,3 +1,9 @@
+'''
+This has everything that was followed in ZTF 
+summer school about the MILP problems
+'''
+
+
 import astroplan
 from astropy.coordinates import ICRS, SkyCoord, AltAz
 from astropy import units as u
