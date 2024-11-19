@@ -226,50 +226,60 @@ selected_fields['probabilities'] = probabilities
 delta = exposure_time.to_value(u.day)
 M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
 
-num_visits = 2  # Assuming two bands, r and g
-cadence_minutes = 90
-cadence = (cadence_minutes * u.minute).to(u.day).value
+num_visits = 2
+num_filters = 2
+cadence = 90/(60*24)
+# cadence = (cadence_minutes * u.minute).to(u.day).value
 
-# Two-dimensional x variable
-x = [[m2.binary_var(name=f"x_{i}_{k}") for k in range(num_visits)] for i in range(len(selected_fields))]
+x = [m2.binary_var(name=f"x_{i}") for i in range(len(selected_fields))]
 
 s = [[m2.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(selected_fields))]
 
-# Update continuous variables for start times per visit
-tc = [[m2.continuous_var(
+tc = [[[m2.continuous_var(
             lb=(row['start_time'] - start_time).to_value(u.day),
             ub=(row['end_time'] - start_time - exposure_time).to_value(u.day),
-            name=f"start_time_{i}_{k}"
-        ) for k in range(num_visits)] for i, row in enumerate(selected_fields)]
+            name=f"start_time_field_{i}_filter_{j}_visit_{k}"
+        ) for k in range(num_visits)] for j in range(num_filters)] for i, row in enumerate(selected_fields)]
 
-# Add constraints for revisits and cadence
+# Add constraints for cadence
 for i in range(len(selected_fields)):
-    for k in range(1, num_visits):
-        # Ensure minimum time between revisits
-        m2.add_constraint(tc[i][k] - tc[i][k - 1] >= cadence * x[i][k], 
-                          ctname=f"cadence_constraint_{i}_{k}")
+    for j in range(num_filters):
+        for k in range(1,num_visits):
+            m2.add_constraint(tc[i][j][k] - tc[i][j][k - 1] >= cadence * x[i], 
+                            ctname=f"cadence_constraint_for_field_{i}_filter{j}_visit_{k}")
 
-# Add non-overlap constraints for all visits
+#add constraints for non-overlapping fields
 for i in range(len(selected_fields)):
-    for k in range(num_visits):
-        for j in range(i):
-            for l in range(num_visits):
-                m2.add_constraint(tc[i][k] + delta * x[i][k] + slew_time_day[i][j] - tc[j][l] <= M * (1 - s[i][j]),
-                                  ctname=f"non_overlap_gap_1_{i}_{j}_{k}_{l}")
-                m2.add_constraint(tc[j][l] + delta * x[j][l] + slew_time_day[i][j] - tc[i][k] <= M * s[i][j],
-                                  ctname=f"non_overlap_gap_2_{i}_{j}_{k}_{l}")
+    for j in range(i):
+        for f in range(num_filters):
+            for v in range(num_visits):
+                m2.add_constraint(tc[i][f][v] + delta * x[i] + slew_time_day[i][j] - tc[j][f][v] <= M * (1 - s[i][j]),
+                                  ctname=f"non_overlap1_for_field_{i}and{j}for_filter{f}visit{v}")
+                m2.add_constraint(tc[j][f][v] + delta * x[j] + slew_time_day[i][j] - tc[i][f][v] <= M * (s[i][j]),
+                                  ctname=f"non_overlap2_for_field_{i}and{j}for_filter{f}visit{v}")
 
-# Add constraints to enforce band order (r-band first, then g-band)
+#filter sequencing
 for i in range(len(selected_fields)):
-    m2.add_constraint(tc[i][1] >= tc[i][0], ctname=f"band_order_constraint_{i}")
+    for v in range(num_visits):
+        for f in range(1, num_filters):
+            m2.add_constraint(tc[i][f-1][v] <= tc[i][f][v],
+                              ctname=f"filter_sequncing_for_field_{i}for_visit{v}to_filter{f}")
 
-# Maximize the probability for all visits
-m2.maximize(m2.sum(probabilities[i] * x[i][k] for i in range(len(selected_fields)) for k in range(num_visits)))
+#visit sequencing
+for i in range(len(selected_fields)):
+    for f in range(num_filters):
+        for v in range(1, num_visits):
+            m2.add_constraint(tc[i][f][v-1] <= tc[i][f][v],
+                              ctname=f"visit_sequncing_for_field_{i}for_filter{f}to_visit{v}")
+
+# m2.maximize(m2.sum(probabilities[i]*x[i]) for i in range(len(selected_fields)))
+m2.maximize(m2.sum([probabilities[i] * x[i] for i in range(len(selected_fields))]))
 
 # Solve
-m2.parameters.timelimit = 60
+m2.parameters.timelimit = 120
 solution = m2.solve(log_output=True)
 
 # Extract scheduled times
-scheduled_start_times = [[solution.get_value(tc[i][k]) for k in range(num_visits)] for i in range(len(selected_fields))]
-print(scheduled_start_times)
+scheduled_start_times = [[[solution.get_value(tc[i][f][v]) for v in range(num_visits)] for f in range(num_filters)] for i in range(len(selected_fields))]
+# print(scheduled_start_times)
+
