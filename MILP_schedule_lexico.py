@@ -247,42 +247,8 @@ for i in range(len(tc)):
                           ctname=f'non_overlap_gap_2_{i}_{j}')
 
 #moon distance constraint
-
-moon_dist_limit = 20
-time_slices = 10  # Number of intervals throughout the night
-
-for i, row in enumerate(selected_fields):
-    field_coord = SkyCoord(row['coord'])
-    start_time = row['start_time']
-    end_time = row['end_time']
-    
-    time_slices = Time(np.linspace(start_time.jd, end_time.jd, time_slices), format='jd') # time slices
-    
-    within_moon_limit = False #if moon is within 20 degrees at any time slice
-    
-    for time in time_slices:
-        moon_position = get_body("moon", time, location=observer_location)
-        separation = moon_position.separation(field_coord).deg
-        # separation = separation.value
-        # If the moon is closer than the limit, mark as within limit
-        if separation < moon_dist_limit:
-            within_moon_limit = True
-            break  
-
-    # Apply constraint based on moon proximity
-    if within_moon_limit:
-        m2.add_constraint(x[i] == 0, ctname=f'moon_proximity_{i}')
-
-
 m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))))
 
-# m2.maximize(m2.sum(x[i] for i in range(len(selected_fields))))
-
-# m2.maximize(m2.sum(probabilities[i] * x[i] for i in range(len(selected_fields))) 
-#     - w * m2.sum(slew_times[i][j] * s[i][j] for i in range(len(selected_fields)) for j in range(i)))
-
-# m2.maximize(m2.sum(probabilities[i]*x[i] - w*slew_times[i][j]*s[i][j]*x[i] for i in range(len(selected_fields) for j in range(i))))
-# m2.maximize(m2.sum(probabilities[i] * x[i] - w * slew_times[i][j] * s[i][j] * x[i] for i in range(len(selected_fields)) for j in range(i)))
 
 m2.parameters.timelimit = 60
 solution = m2.solve(log_output=True)
