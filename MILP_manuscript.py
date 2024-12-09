@@ -238,6 +238,8 @@ tc = [[m2.continuous_var(
     for v in range(num_visits*num_filters)] 
     for i, row in enumerate(selected_fields)]
 
+visit_transition_times = [m2.continuous_var(lb=0,ub=M,name=f"visit_transition_{v}") for v in range(num_visits*num_filters-1)]  
+
 # Cadence constraints
 for i in range(len(selected_fields)):
     for v in range(1, num_visits*num_filters):
@@ -255,10 +257,18 @@ for v in range(num_visits*num_filters):
 
 # Isolating visits
 for v in range(1, num_visits*num_filters):
-    prev_visit_end = m2.max([tc[i][v-1] + 2 * delta * x[i][v-1] for i in range(len(selected_fields))])
     for i in range(len(selected_fields)):
-        m2.add_constraint(tc[i][v] >= prev_visit_end,
-            ctname=f"visit_sequence_field_{i}_visit_{v}")
+        m2.add_constraint(tc[i][v-1] + delta * x[i][v-1] <= visit_transition_times[v-1],
+            ctname=f"visit_end_{i}_visit_{v-1}")
+        m2.add_constraint(tc[i][v] >= visit_transition_times[v-1],
+            ctname=f"visit_start_{i}_visit_{v}")
+
+# Isolating visits
+# for v in range(1, num_visits*num_filters):
+#     prev_visit_end = m2.max([tc[i][v-1] + 2 * delta * x[i][v-1] for i in range(len(selected_fields))])
+#     for i in range(len(selected_fields)):
+#         m2.add_constraint(tc[i][v] >= prev_visit_end,
+#             ctname=f"visit_sequence_field_{i}_visit_{v}")
 
 m2.maximize(m2.sum([probabilities[i] * x[i][v]
                     for i in range(len(selected_fields))
