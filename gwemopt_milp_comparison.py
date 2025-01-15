@@ -32,6 +32,8 @@ warnings.simplefilter('ignore', astroplan.TargetAlwaysUpWarning)
 
 def run_gwemopt_and_get_probability(
     fits_file, start_time_, end_time_, filters="g,i,r",exposure_times="180.0,180.0,180.0"):
+    # tobs = (end_time_-start_time_)
+    gpsTime = start_time_.mjd
     cmd = [
         "gwemopt-run",
         "-t", "ZTF",
@@ -50,9 +52,8 @@ def run_gwemopt_and_get_probability(
         "--geometry", "3d",
         "--solverType", "heuristic",
         "--nside", "256",
-        "--start_time", start_time_,
-        "--end_time", end_time_,
-        "--doAlternatingFilters" 
+        "--gpstime", str(gpsTime),
+        "--Tobs", "0.0,0.5" 
     ]
     
     try:
@@ -219,10 +220,10 @@ def scheduler(skymap_file,n,exp_time):
     field_vars_4 = m4.binary_var_list(len(footprints), name='field')
     pixel_vars_4 = m4.binary_var_list(hpx.npix, name='pixel')
 
-    footprints_healpix_inverse = [[] for _ in range(hpx.npix)]
-    for field, pixels in enumerate(footprints_healpix):
-        for pixel in pixels:
-            footprints_healpix_inverse[pixel].append(field)
+    # footprints_healpix_inverse = [[] for _ in range(hpx.npix)]
+    # for field, pixels in enumerate(footprints_healpix):
+    #     for pixel in pixels:
+    #         footprints_healpix_inverse[pixel].append(field)
 
     for i_pixel, i_fields in enumerate(footprints_healpix_inverse):
         m4.add_constraint(m4.sum(field_vars_4[i] for i in i_fields) >= pixel_vars_4[i_pixel])
@@ -243,7 +244,7 @@ def scheduler(skymap_file,n,exp_time):
         
         if total_prob_covered_REVISIT>=0.01:            
             # selected_fields_ID = [i for i, v in enumerate(field_vars) if v.solution_value == 1]
-            selected_fields = observable_fields[[solution1.get_value(v) == 1 for v in field_vars_1]]
+            selected_fields = observable_fields[[solution1.get_value(v) == 1 for v in field_vars]]
             delta = exposure_time.to_value(u.day)
             limit_duration = ((end_time-start_time).value*(1-1/(num_visits*num_filters))) + delta
             filtered_fields = selected_fields[(selected_fields['end_time'] - selected_fields['start_time']).to_value(u.day) > limit_duration]
@@ -269,14 +270,14 @@ def scheduler(skymap_file,n,exp_time):
                 np.unique(np.concatenate([hp.query_polygon(hpx.nside, v) for v in footprint]))
                 for footprint in tqdm(footprints_selected)]
 
-            probabilities = []
+            probabilities_revisit = []
 
             for field_index in range(len(footprints_healpix_selected)):
                 probability_field = np.sum(prob[footprints_healpix_selected[field_index]])
-                probabilities.append(probability_field)
-            print("worked for",len(probabilities),"fields")
+                probabilities_revisit.append(probability_field)
+            print("worked for",len(probabilities_revisit),"fields")
 
-            selected_fields['probabilities'] = probabilities
+            selected_fields['probabilities'] = probabilities_revisit
 
             delta = exposure_time.to_value(u.day)
             M = (selected_fields['end_time'].max() - selected_fields['start_time'].min()).to_value(u.day).item()
@@ -351,7 +352,7 @@ def scheduler(skymap_file,n,exp_time):
             m2.parameters.mip.strategy.variableselect = 4  # Strong branching
             m2.parameters.mip.strategy.probe = 3  # Aggressive probing
             # m2.parameters.preprocessing.linear = 2  # Aggressive linear reduction
-            m2.maximize(m2.sum([probabilities[i] * x[i][v]
+            m2.maximize(m2.sum([probabilities_revisit[i] * x[i][v]
                                 for i in range(len(selected_fields))
                                 for v in range(num_visits*num_filters)]))
 
@@ -368,6 +369,21 @@ def scheduler(skymap_file,n,exp_time):
             slew_time_value_single = slew_times_single*u.second
             slew_time_day_single = slew_time_value_single.to_value(u.day)
             m3 = Model("Telescope timings single visit")
+            
+            footprints_selected_single = np.moveaxis(get_footprint(selected_fields_single['coord']).cartesian.xyz.value, 0, -1)
+            footprints_healpix_selected_single = [
+                np.unique(np.concatenate([hp.query_polygon(hpx.nside, v) for v in footprint]))
+                for footprint in tqdm(footprints_selected_single)]
+
+            probabilities_single = []
+
+            for field_index in range(len(footprints_healpix_selected_single)):
+                probability_field = np.sum(prob[footprints_healpix_selected_single[field_index]])
+                probabilities_single.append(probability_field)
+            print("worked for",len(probabilities_single),"fields")
+
+            selected_fields_single['probabilities'] = probabilities_single            
+            
             x_ = m3.binary_var_list(len(selected_fields_single), name='selected field')
             s_ = [[m3.binary_var(name=f's_{i}_{j}') for j in range(i)] for i in range(len(selected_fields_single))]
 
@@ -382,12 +398,12 @@ def scheduler(skymap_file,n,exp_time):
                     
             for i in range(len(tc_)):
                 for j in range(i):
-                    m3.add_constraint(tc_[i] + delta * x_[i] + slew_time_day[i][j] - tc_[j] <= M * (1 - s_[i][j]),
+                    m3.add_constraint(tc_[i] + delta * x_[i] + slew_time_day_single[i][j] - tc_[j] <= M * (1 - s_[i][j]),
                                     ctname=f'non_overlap_gap_1_{i}_{j}')
-                    m3.add_constraint(tc_[j] + delta * x_[j] + slew_time_day[i][j] - tc_[i] <= M * s_[i][j], 
+                    m3.add_constraint(tc_[j] + delta * x_[j] + slew_time_day_single[i][j] - tc_[i] <= M * s_[i][j], 
                                     ctname=f'non_overlap_gap_2_{i}_{j}')
 
-            m3.maximize(m3.sum(probabilities[i] * x_[i] for i in range(len(selected_fields_single))))
+            m3.maximize(m3.sum(probabilities_single[i] * x_[i] for i in range(len(selected_fields_single))))
             m3.parameters.timelimit = 60
             solution3 = m3.solve(log_output=False)
             if solution2:
@@ -397,9 +413,7 @@ def scheduler(skymap_file,n,exp_time):
                 if __name__ == "__main__":
                     try:
                         t5 = time.time()
-                        start_time_iso = start_time.isot
-                        end_time_iso = end_time.isot
-                        probability_, full_output = run_gwemopt_and_get_probability(fits_file = skymap_file, start_time_ = start_time_iso, end_time_ = end_time_iso)
+                        probability_, full_output = run_gwemopt_and_get_probability(fits_file = skymap_file, start_time_ = start_time, end_time_ = end_time)
 
                         t6 = time.time()
 
