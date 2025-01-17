@@ -246,7 +246,8 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
             filtered_fields = selected_fields[(selected_fields['end_time'] - selected_fields['start_time']).to_value(u.day) > limit_duration]
             if len(filtered_fields) == 0:
                 print("No fields available for the entire night after filtering")
-                return
+                return SchedulerResult(cumulative_probability=0.0,num_fields=0,coverage=0.0,computation_time=time.time() - start_time_2,
+                                       duration=(end_time-start_time).to_value(u.day))
             selected_fields = filtered_fields
             print(f"Selected {len(selected_fields)} fields after filtering")
             separation_matrix = selected_fields['coord'][:,np.newaxis].separation(selected_fields['coord'][np.newaxis,:])
