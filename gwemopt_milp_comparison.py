@@ -392,9 +392,6 @@ def scheduler(skymap_file,n,exp_time):
                     ub=(row['end_time'] - start_time - exposure_time).to_value(u.day),
                     name=f'start_times_{i}'
                 ) for i, row in enumerate(selected_fields_single)]
-
-            # slew_time_value = slew_times*u.second
-            # slew_time_day = slew_time_value.to_value(u.day)
                     
             for i in range(len(tc_)):
                 for j in range(i):
