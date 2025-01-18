@@ -100,12 +100,12 @@ def extract_field_numbers(output_text: str) -> Tuple[int, int]:
         return int(match.group(1)), int(match.group(2))
     return 0, 0
 
-def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time, 
+def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time, gps_time_: Time, 
                            filters: str = "g,i,r", exposure_times: str = "180.0,180.0,180.0") -> SchedulerResult:
     """Run GWEMOPT and extract relevant metrics"""
     start_time_1 = time.time()
     tobs = (end_time_-start_time_)
-    gpsTime = start_time_.mjd
+    gpsTime = gps_time_.mjd
     cmd = [
         "gwemopt-run",
         "-t", "ZTF",
@@ -125,7 +125,7 @@ def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time,
         "--solverType", "heuristic",
         "--nside", "256",
         "--gpstime", str(gpsTime),
-        "--Tobs", "0.0,0.4" 
+        "--Tobs", f"0.0,0.42" 
     ]
     
     try:
@@ -155,6 +155,7 @@ def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time,
 
 def dummy(skymap_file):
     skymap, metadata = read_sky_map(skymap_file)
+    gps_time = Time(metadata['gps_time'], format='gps')
     event_time = Time(metadata['gps_time'], format='gps').utc
     event_time.format = 'iso'
     if observer.is_night(event_time, horizon=night_horizon):
@@ -164,7 +165,7 @@ def dummy(skymap_file):
             event_time, horizon=night_horizon, which='next')
     end_time = observer.sun_rise_time(
         start_time, horizon=night_horizon, which='next')
-    return start_time,end_time
+    return start_time,end_time,gps_time
 
 def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 180.0) -> SchedulerResult:
     """Run MILP scheduler with specified number of revisits"""
@@ -174,7 +175,6 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
     exposure_time = exp_time * u.second
     exposure_time_day = exposure_time.to_value(u.day)
     skymap, metadata = read_sky_map(skymap_file)
-    # print("SkyMap",n, "loaded")
     event_time = Time(metadata['gps_time'], format='gps').utc
     event_time.format = 'iso'
 
@@ -407,13 +407,30 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
         computation_time=time.time() - start_time_2,
         duration = duration_
     )
-
+    
 def process_skymap(skymap_file: str, skymap_number: int, revisit_scenarios: List[int]) -> dict:
     """Process a single skymap and return results for all methods"""
     results = {
         'skymap_number': skymap_number,
         'skymap_file': os.path.basename(skymap_file)
     }
+    
+    # Run GWEMOPT first
+    start_time_global, end_time_global, gps_time = dummy(skymap_file)
+    gwemopt_result = run_gwemopt_with_params(skymap_file, start_time_=start_time_global, end_time_=end_time_global, gps_time_=gps_time)
+    results.update({
+        'gwemopt_probability': gwemopt_result.cumulative_probability,
+        'gwemopt_fields': gwemopt_result.num_fields,
+        'gwemopt_coverage': gwemopt_result.coverage,
+        'gwemopt_time': gwemopt_result.computation_time,
+        'gwemopt_day_duration': gwemopt_result.duration
+    })
+    
+    # Print GWEMOPT probability
+    print(f"\nSkymap {skymap_number} - {os.path.basename(skymap_file)}")
+    print(f"GWEMOPT Cumulative Probability: {gwemopt_result.cumulative_probability:.4f}")
+    
+    # Run MILP for each revisit scenario
     for num_revisits in revisit_scenarios:
         milp_result = run_milp_scheduler(skymap_file, num_revisits)
         results.update({
@@ -422,17 +439,12 @@ def process_skymap(skymap_file: str, skymap_number: int, revisit_scenarios: List
             f'milp_{num_revisits}_visit_coverage': milp_result.coverage,
             f'milp_{num_revisits}_visit_time': milp_result.computation_time,
             f'milp_{num_revisits}_day_duration': milp_result.duration
-            })
-    # Run GWEMOPT
-    start_time_global,end_time_global = dummy(skymap_file)
-    gwemopt_result = run_gwemopt_with_params(skymap_file, start_time_=start_time_global,end_time_=end_time_global)
-    results.update({
-        'gwemopt_probability': gwemopt_result.cumulative_probability,
-        'gwemopt_fields': gwemopt_result.num_fields,
-        'gwemopt_coverage': gwemopt_result.coverage,
-        'gwemopt_time': gwemopt_result.computation_time,
-        'gwemopt_day_duration': gwemopt_result.duration
-    })
+        })
+        # Print MILP probability for each revisit scenario
+        print(f"MILP {num_revisits}-Visit Cumulative Probability: {milp_result.cumulative_probability:.4f}")
+    
+    print("-" * 50)  # Add separator line between skymaps
+    return results
     
     # Run MILP for each revisit scenario
     
