@@ -9,7 +9,7 @@ from astroplan import FixedTarget,Observer
 from matplotlib.backends.backend_pdf import PdfPages
 from astropy.coordinates import ICRS, SkyCoord, AltAz
 from astropy import units as u
-from astropy.utils.data import download_file
+# from astropy.utils.data import download_file
 from astropy.table import Table, QTable, join
 from astropy.time import Time
 from astropy_healpix import *
@@ -65,9 +65,12 @@ def get_footprint(center):
         frame=center[..., np.newaxis, np.newaxis].skyoffset_frame()
     ).icrs
 
-url = 'https://github.com/ZwickyTransientFacility/ztf_information/raw/master/field_grid/ZTF_Fields.txt'
-filename = download_file(url)
-field_grid = QTable(np.recfromtxt(filename, comments='%', usecols=range(3), names=['field_id', 'ra', 'dec']))
+'''uncomment to download and access the following file'''
+# url = 'https://github.com/ZwickyTransientFacility/ztf_information/raw/master/field_grid/ZTF_Fields.txt'
+# filename = download_file(url)
+
+local_filename = '/u/ywagh/ZTF_Fields.txt'
+field_grid = QTable(np.recfromtxt(local_filename, comments='%', usecols=range(3), names=['field_id', 'ra', 'dec']))
 field_grid['coord'] = SkyCoord(field_grid.columns.pop('ra') * u.deg, field_grid.columns.pop('dec') * u.deg)
 field_grid = field_grid[0:881]
 
@@ -82,7 +85,6 @@ targets = field_grid['coord']
 class SchedulerResult:
     cumulative_probability: float
     num_fields: float
-    coverage: float  # Coverage percentage
     computation_time: float
     duration: float
 
@@ -138,15 +140,11 @@ def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time, 
         
         observed_fields, total_fields = extract_field_numbers(output)
         
-        coverage_matches = re.findall(r"Cumultative area: ([\d.]+)", output)
-        coverage = float(coverage_matches[-1]) if coverage_matches else 0.0
-        
         computation_time = time.time() - start_time_1
         
         return SchedulerResult(
             cumulative_probability=probability,
             num_fields=total_fields,
-            coverage=coverage,
             computation_time=computation_time,
             duration=0.4
         )
@@ -246,7 +244,7 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
             filtered_fields = selected_fields[(selected_fields['end_time'] - selected_fields['start_time']).to_value(u.day) > limit_duration]
             if len(filtered_fields) == 0:
                 print("No fields available for the entire night after filtering")
-                return SchedulerResult(cumulative_probability=0.0,num_fields=0,coverage=0.0,computation_time=time.time() - start_time_2,
+                return SchedulerResult(cumulative_probability=0.0,num_fields=0,computation_time=time.time() - start_time_2,
                                        duration=(end_time-start_time).to_value(u.day))
             selected_fields = filtered_fields
             print(f"Selected {len(selected_fields)} fields after filtering")
@@ -297,7 +295,7 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
                                         ctname=f'non_overlap_gap_2_{i}_{j}')
 
                 m3.maximize(m3.sum(probabilities[i] * x_[i] for i in range(len(selected_fields))))
-                m3.parameters.timelimit = 60
+                m3.parameters.timelimit = 30
                 solution2 = m3.solve(log_output=False)
             else:
                 m2 = Model("Telescope timings for revisit")
@@ -385,11 +383,10 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
                     # scheduled_fields = selected_fields[scheduled_fields_indices]
                     
                 cumulative_probability_ = solution2.objective_value/(num_revisits)
-                coverage_percentage = 0
                 duration_ = (end_time-start_time).value
             else:
                 #no solution for scheduling
-                return SchedulerResult(cumulative_probability=0.0,num_fields=0,coverage=0.0,computation_time=time.time() - start_time_2,
+                return SchedulerResult(cumulative_probability=0.0,num_fields=0,computation_time=time.time() - start_time_2,
                                        duration=(end_time-start_time).to_value(u.day))
                 
     # Your existing MILP scheduler code here
@@ -397,13 +394,12 @@ def run_milp_scheduler(skymap_file: str, num_revisits: int, exp_time: float = 18
     # Make sure to calculate coverage percentage
     else:
         print("no solution to coverage problem")
-        return SchedulerResult(cumulative_probability=0.0,num_fields=0,coverage=0.0,computation_time=time.time() - start_time_2,
+        return SchedulerResult(cumulative_probability=0.0,num_fields=0,computation_time=time.time() - start_time_2,
                                duration=(end_time-start_time).to_value(u.day))
     # Example return (replace with actual values from your MILP implementation):
     return SchedulerResult(
         cumulative_probability=cumulative_probability_,
         num_fields=len(scheduled_fields_indices),
-        coverage=coverage_percentage,
         computation_time=time.time() - start_time_2,
         duration = duration_
     )
@@ -421,7 +417,6 @@ def process_skymap(skymap_file: str, skymap_number: int, revisit_scenarios: List
     results.update({
         'gwemopt_probability': gwemopt_result.cumulative_probability,
         'gwemopt_fields': gwemopt_result.num_fields,
-        'gwemopt_coverage': gwemopt_result.coverage,
         'gwemopt_time': gwemopt_result.computation_time,
         'gwemopt_day_duration': gwemopt_result.duration
     })
@@ -436,7 +431,6 @@ def process_skymap(skymap_file: str, skymap_number: int, revisit_scenarios: List
         results.update({
             f'milp_{num_revisits}_visit_probability': milp_result.cumulative_probability,
             f'milp_{num_revisits}_visit_fields': milp_result.num_fields,
-            f'milp_{num_revisits}_visit_coverage': milp_result.coverage,
             f'milp_{num_revisits}_visit_time': milp_result.computation_time,
             f'milp_{num_revisits}_day_duration': milp_result.duration
         })
@@ -452,10 +446,26 @@ def process_skymap(skymap_file: str, skymap_number: int, revisit_scenarios: List
     return results
 
 
-def create_results_csv(directory_path: str, output_file: str = 'scheduling_results.csv'):
-    """Process all skymaps and create CSV file with results"""
-    skymap_files = sorted([f for f in os.listdir(directory_path) if f.endswith('.gz')])
-    revisit_scenarios = [1, 2, 3]  # Test 1, 2, and 3 revisits
+def create_results_csv(directory_path: str, num_files: int = 1000, output_file: str = 'scheduling_results.csv'):
+    """
+    Process randomly selected skymaps and create CSV file with results
+    
+    Parameters:
+    directory_path: str - Path to directory containing skymap files
+    num_files: int - Number of files to randomly select (default 1000)
+    output_file: str - Name of output CSV file
+    """
+    # Get all skymap files with the new naming pattern
+    skymap_files = [f for f in os.listdir(directory_path) 
+                   if f.endswith('.fits')]
+    
+    # Randomly select specified number of files
+    if len(skymap_files) > num_files:
+        skymap_files = np.random.choice(skymap_files, size=num_files, replace=False)
+    else:
+        print(f"Warning: Only {len(skymap_files)} files available, using all files")
+    
+    revisit_scenarios = [1, 3]
     
     all_results = []
     for i, skymap_file in enumerate(skymap_files):
@@ -481,9 +491,8 @@ def create_results_csv(directory_path: str, output_file: str = 'scheduling_resul
     print("\nGWEMOPT Statistics:")
     print(f"Average probability: {df['gwemopt_probability'].mean():.4f}")
     print(f"Average fields used: {df['gwemopt_fields'].mean():.1f}")
-    print(f"Average coverage: {df['gwemopt_coverage'].mean():.4f}")
     print(f"Average computation time: {df['gwemopt_time'].mean():.2f} seconds")
-    print(f"Average available day duration: {df['gwemopt_day_duration'].mean():.2f} day")  # Fixed column name
+    print(f"Average available day duration: {df['gwemopt_day_duration'].mean():.2f} day")
     
     # Print MILP statistics for each revisit scenario
     for n in revisit_scenarios:
@@ -491,12 +500,12 @@ def create_results_csv(directory_path: str, output_file: str = 'scheduling_resul
         try:
             print(f"Average probability: {df[f'milp_{n}_visit_probability'].mean():.4f}")
             print(f"Average fields used: {df[f'milp_{n}_visit_fields'].mean():.1f}")
-            print(f"Average coverage: {df[f'milp_{n}_visit_coverage'].mean():.4f}")
             print(f"Average computation time: {df[f'milp_{n}_visit_time'].mean():.2f} seconds")
-            print(f"Average available day duration: {df[f'milp_{n}_day_duration'].mean():.2f} day")  # Consistent naming
+            print(f"Average available day duration: {df[f'milp_{n}_day_duration'].mean():.2f} day")
         except KeyError as e:
-            print(f"Warning: Missing data for {n}-visit scenario") 
+            print(f"Warning: Missing data for {n}-visit scenario")
 
 if __name__ == "__main__":
-    directory_path = "/u/ywagh/test_skymaps"
-    create_results_csv(directory_path)
+    directory_path = "/u/ywagh/thousand_skymaps/skymaps/skymaps/"
+    np.random.seed(42)
+    create_results_csv(directory_path, num_files=1000)
