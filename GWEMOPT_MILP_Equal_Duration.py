@@ -1,5 +1,5 @@
 '''
-This code scheudled gwemopt and milp scheduler for multiple skymaps and has equal values for duration available for all the fields, that is 12 hours. 
+This code scheudles gwemopt and milp scheduler for multiple skymaps and has equal values for duration available for all the fields, that is 12 hours. 
 This is done to test GWEMOPT and MILP for equal performances
 '''
 from dataclasses import dataclass
@@ -161,7 +161,9 @@ def run_gwemopt_with_params(fits_file: str, start_time_: Time, end_time_: Time, 
         "--solverType", "heuristic",
         "--nside", "256",
         "--gpstime", str(gpsTime),
-        "--Tobs", "0.0,0.5"
+        "--Tobs", "0.0,0.5",
+        "--doParallel",
+        "--doChipGaps"
     ]
     
     try:
